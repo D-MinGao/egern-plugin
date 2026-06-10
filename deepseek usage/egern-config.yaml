@@ -1,10 +1,10 @@
 # ============================================================
-# Egern 配置文件 — DeepSeek API 用量监控小组件
+# Egern 配置 — DeepSeek API 用量监控小组件 v2.0
 # ============================================================
 # 安装方式：
 #   1. 将 deepseek-usage.js 放到 Egern 脚本目录
 #   2. 将此配置添加到你的主配置文件，或直接在 Egern 中按以下结构配置
-#   3. 在 env 中填入你的 DeepSeek API Key
+#   3. 将 DEEPSEEK_API_KEY 替换为你的真实 API Key
 # ============================================================
 
 scriptings:
@@ -16,5 +16,4 @@ scriptings:
 widgets:
   - name: "deepseek-usage"
     env:
-      DEEPSEEK_API_KEY: "your-deepseek-api-key-here"
-      REFRESH_INTERVAL: "600000"
+      DEEPSEEK_API_KEY: "sk-your-deepseek-api-key-here"
