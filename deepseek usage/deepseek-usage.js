@@ -1,15 +1,22 @@
 /**
  * ==========================================
  * 📌 DeepSeek 余额监控小组件
- * ✨ 纯余额卡片，干净可靠，无无效 API 调用
  *
- * 🔧 环境变量：DEEPSEEK_API_KEY
+ * 🔧 环境变量：
+ *   DEEPSEEK_API_KEY  — API Key（必填）
+ *   REFRESH_MINUTES   — 刷新间隔分钟（默认 30，最小 5）
+ *
  * ⏱️ 更新时间 2026.06.11
  * ==========================================
  */
 
 export default async function (ctx) {
-  const apiKey = (ctx.env || {}).DEEPSEEK_API_KEY;
+  const env    = ctx.env || {};
+  const apiKey = env.DEEPSEEK_API_KEY;
+
+  // 刷新间隔：默认 30 分钟，最小 5 分钟
+  const refreshMin = Math.max(5, parseInt(env.REFRESH_MINUTES) || 30);
+  const nextRefresh = new Date(Date.now() + refreshMin * 60000).toISOString();
 
   const family  = (ctx.widgetFamily || 'systemMedium').toLowerCase();
   const isSmall = family.includes('small');
@@ -41,7 +48,7 @@ export default async function (ctx) {
 
   // ── 无 Key ───────────────────────────────────────────────────────────
   if (!apiKey) {
-    return { type:"widget", padding:12, backgroundGradient:GRAD, children:[
+    return { type:"widget", refreshAfter:nextRefresh, padding:12, backgroundGradient:GRAD, children:[
       I("key.fill",{light:'#B07C1A',dark:'#D4A02A'},20), S(8),
       T("请设置 DEEPSEEK_API_KEY",11,"medium",{light:'#B07C1A',dark:'#D4A02A'},{maxLines:2,minScale:0.7})
     ]};
@@ -58,7 +65,7 @@ export default async function (ctx) {
   } catch (e) { err = e.message || String(e); }
 
   if (!balance && err) {
-    return { type:"widget", padding:12, backgroundGradient:GRAD, children:[
+    return { type:"widget", refreshAfter:nextRefresh, padding:12, backgroundGradient:GRAD, children:[
       I("exclamationmark.triangle.fill",{light:'#B07C1A',dark:'#D4A02A'},20), S(6),
       T("请求失败",12,"bold",C.red), S(2),
       T(err,10,"medium",C.muted,{maxLines:2,minScale:0.6})
@@ -80,7 +87,7 @@ export default async function (ctx) {
 
   // ============================================================
   function buildSmall() {
-    return { type:"widget", padding:14, backgroundGradient:GRAD, children:[
+    return { type:"widget", refreshAfter:nextRefresh, padding:14, backgroundGradient:GRAD, children:[
       R([I("brain.head.profile",C.accent,12), S(3), T("DeepSeek",11,"heavy",C.main,{maxLines:1,minScale:0.8}), S()], 0),
       S(),
       T(balVal, 28, "heavy", C.main, { textAlign:"center", minScale:0.4 }),
@@ -93,7 +100,7 @@ export default async function (ctx) {
   }
 
   function buildMedium() {
-    return { type:"widget", padding:16, backgroundGradient:GRAD, children:[
+    return { type:"widget", refreshAfter:nextRefresh, padding:16, backgroundGradient:GRAD, children:[
       R([I("brain.head.profile",C.accent,16), S(3), T("DeepSeek",16,"heavy",C.main), S(), I(ok?"checkmark.circle.fill":"xmark.circle.fill",ok?C.green:C.red,12), T(ok?"可用":"异常",10,"bold",ok?C.green:C.red)], 0),
       S(16),
       T(balVal, 40, "heavy", C.main, { textAlign:"center", minScale:0.3 }),
@@ -106,7 +113,7 @@ export default async function (ctx) {
   }
 
   function buildLarge() {
-    return { type:"widget", padding:20, backgroundGradient:GRAD, children:[
+    return { type:"widget", refreshAfter:nextRefresh, padding:20, backgroundGradient:GRAD, children:[
       R([I("brain.head.profile",C.accent,20), S(4), T("DeepSeek 余额",18,"heavy",C.main), S(), I(ok?"checkmark.circle.fill":"xmark.circle.fill",ok?C.green:C.red,16), T(ok?"API 可用":"API 异常",12,"medium",ok?C.green:C.red)], 0),
       S(),
       T(balVal, 56, "heavy", C.main, { textAlign:"center", minScale:0.25 }),
@@ -120,14 +127,14 @@ export default async function (ctx) {
 
   function buildRect() {
     const t = balance ? fmtCurrency(balance.totalBalance, cur) : "--";
-    return { type:"widget", padding:[10,14], backgroundGradient:GRAD, children:[
+    return { type:"widget", refreshAfter:nextRefresh, padding:[10,14], backgroundGradient:GRAD, children:[
       R([I("brain.head.profile",C.accent,12), S(4), T(`DeepSeek  ${t}`,12,"semibold",C.main,{flex:1,maxLines:1,minScale:0.6})], 0),
       S(2), T(ok?"API 可用":"API 异常",10,"medium",ok?C.green:C.red)
     ]};
   }
 
   function buildCirc() {
-    return { type:"widget", padding:8, backgroundGradient:GRAD, children:[
+    return { type:"widget", refreshAfter:nextRefresh, padding:8, backgroundGradient:GRAD, children:[
       I("brain.head.profile",C.accent,16), S(2),
       T(balance?fmtCurrency(balance.totalBalance,cur):"--",9,"bold",C.main,{textAlign:"center",minScale:0.5})
     ]};
@@ -135,7 +142,7 @@ export default async function (ctx) {
 
   function buildInline() {
     const t = balance ? `${fmtCurrency(balance.totalBalance, cur)} · ${ok?"可用":"异常"}` : "DeepSeek";
-    return { type:"widget", children:[ T(t,12,"medium",C.main,{textAlign:"center",minScale:0.5}) ]};
+    return { type:"widget", refreshAfter:nextRefresh, children:[ T(t,12,"medium",C.main,{textAlign:"center",minScale:0.5}) ]};
   }
 }
 
