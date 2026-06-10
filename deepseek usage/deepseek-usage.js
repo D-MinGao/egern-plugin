@@ -3,22 +3,19 @@
  * 📌 DeepSeek API 用量监控小组件
  * ✨ 【主要功能】
  * • 六端尺寸完美适配：
- *   - systemSmall         ：极简余额 + Token 概览
- *   - systemMedium        ：余额明细 + 用量统计 + 更新时间
- *   - systemLarge         ：大号余额 + 玻璃卡片 + 最近记录
- *   - accessoryRectangular：锁屏单行显示
+ *   - systemSmall         ：2×2 四宫格（总余额/充值/赠送/已消费）
+ *   - systemMedium        ：1×4 横排卡片 + 分隔线 + 更新时间
+ *   - systemLarge         ：放大四宫格 + 消费统计
+ *   - accessoryRectangular：锁屏单行余额+已消费
  *   - accessoryCircular   ：锁屏圆形图标 + 余额
  *   - accessoryInline     ：锁屏内联文本
- * • 实时余额精准拉取：充值/赠送/总余额，多币种自适应
+ * • 实时余额精准拉取：充值/赠送/总余额/已消费，多币种自适应
+ * • 已消费智能推算 = 充值 + 赠送 - 当前余额
  * • API 状态可视化：绿色对勾/红色叉号
- * • 用量统计：Token 计数 + 花费追踪
  * • 自适应浅色/深色模式，iOS 系统外观自动切换
  *
  * 🔧 【环境变量】
  * DEEPSEEK_API_KEY  — DeepSeek API Key（必填）
- *
- * 🔗 链接引用
- * https://raw.githubusercontent.com/.../DeepSeekUsage.js
  *
  * ⏱️ 更新时间 2026.06.11
  * ==========================================
@@ -44,7 +41,6 @@ export default async function (ctx) {
     main:    { light: '#1C1C1E',   dark: '#F2F2F7' },
     muted:   { light: '#8E8E93',   dark: '#636366' },
     accent:  { light: '#4F46E5',   dark: '#818CF8' },
-    accent2: { light: '#7C3AED',   dark: '#A78BFA' },
     green:   { light: '#1E7E44',   dark: '#30D158' },
     yellow:  { light: '#B07C1A',   dark: '#D4A02A' },
     red:     { light: '#C0392B',   dark: '#FF453A' },
@@ -73,10 +69,6 @@ export default async function (ctx) {
   const mkSpacer = (length) => length != null ? { type: "spacer", length } : { type: "spacer" };
   const mkDivider = () => ({ type: "stack", height: 0.5, backgroundColor: C.divider, borderRadius: 1, children: [] });
 
-  // ── 统计条目 ──────────────────────────────────────────────────────────
-  const statItem = (label, value, color) =>
-    mkCol([ mkText(value, 12, "semibold", color), mkText(label, 10, "regular", C.muted) ], 1);
-
   // ── 卡片构建工厂（参数化不同尺寸）─────────────────────────────────────
   const buildCard = (item, cfg) => ({
     type: "stack", direction: "column", alignItems: "center",
@@ -101,35 +93,27 @@ export default async function (ctx) {
     };
   }
 
-  // ── 网络数据获取与解析 ─────────────────────────────────────────────────
-  let balance  = null;
-  let usage    = null;
-  let loadErr  = null;
+  // ── 网络数据获取（仅余额 API；用量由余额推算）────────────────────────
+  let balance = null;
+  let loadErr = null;
 
   try {
-    const headers = { 'Authorization': `Bearer ${apiKey}` };
+    const resp = await ctx.http.get('https://api.deepseek.com/user/balance', {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+      timeout: 15000,
+    });
 
-    const [bResp, uResp] = await Promise.all([
-      ctx.http.get('https://api.deepseek.com/user/balance', { headers, timeout: 15000 }).catch(e => ({ _err: e })),
-      ctx.http.get('https://api.deepseek.com/user/usage',   { headers, timeout: 15000 }).catch(e => ({ _err: e })),
-    ]);
-
-    if (!bResp._err && bResp.status === 200) {
-      balance = parseBalance(await bResp.json());
-    }
-    if (!uResp._err && uResp.status === 200) {
-      usage = parseUsage(await uResp.json());
-    }
-
-    if (!balance && !usage) {
-      loadErr = bResp._err?.message || uResp._err?.message || `HTTP ${bResp.status || uResp.status || 'error'}`;
+    if (resp.status === 200) {
+      balance = parseBalance(await resp.json());
+    } else {
+      loadErr = `HTTP ${resp.status}`;
     }
   } catch (e) {
     loadErr = e.message || String(e);
   }
 
   // ── 加载失败时的错误视图 ──────────────────────────────────────────────
-  if (!balance && !usage && loadErr) {
+  if (!balance && loadErr) {
     return {
       type: "widget", padding: 12, backgroundGradient,
       children: [
@@ -142,15 +126,22 @@ export default async function (ctx) {
 
   // ── 构建数据项列表 ─────────────────────────────────────────────────────
   const currency = balance ? (balance.currency || 'CNY') : 'CNY';
+  const apiAvailable = balance ? balance.available : false;
+
+  // 已消费 = 充值总额 + 赠送总额 - 当前余额
+  const spent = balance
+    ? Math.max(0, balance.toppedUp + balance.granted - balance.totalBalance)
+    : 0;
+
+  // 安全取值：balance 存在且字段有效才显示数值，否则显示 "--"
+  const safeVal = (val, fmt) => (val != null ? fmt(val) : "--");
 
   const BALANCE_ITEMS = [
-    { label: "总余额", key: "total", val: balance ? fmtCurrency(balance.totalBalance, currency) : "--", color: C.main },
-    { label: "充值",   key: "topup", val: balance ? fmtCurrency(balance.toppedUp, currency)     : "--", color: C.muted },
-    { label: "赠送",   key: "grant", val: balance ? fmtCurrency(balance.granted, currency)      : "--", color: C.muted },
-    { label: "Tokens", key: "tokens",val: usage   ? fmtTokens(usage.totalTokens)                : "--", color: C.accent },
+    { label: "总余额", key: "total", val: safeVal(balance?.totalBalance, v => fmtCurrency(v, currency)), color: C.main },
+    { label: "充值",   key: "topup", val: safeVal(balance?.toppedUp,     v => fmtCurrency(v, currency)), color: C.muted },
+    { label: "赠送",   key: "grant", val: safeVal(balance?.granted,      v => fmtCurrency(v, currency)), color: C.muted },
+    { label: "已消费", key: "spent", val: balance ? fmtCurrency(spent, currency) : "--", color: C.accent },
   ];
-
-  const apiAvailable = balance ? balance.available : false;
 
   // ── 视图分发 ────────────────────────────────────────────────────────────
   if (isSmall)  return buildSmall();
@@ -219,12 +210,10 @@ export default async function (ctx) {
             mkText(updateTimeStr, 9, "bold", C.muted, { family: "Menlo" })
           ], 4),
           mkSpacer(),
-          usage && usage.totalCost != null
-            ? mkRow([
-                mkText("总花费", 10, "medium", C.muted),
-                mkText(`$${usage.totalCost.toFixed(4)}`, 10, "bold", C.accent2)
-              ], 2)
-            : mkText(balance ? `余额 ${fmtCurrency(balance.totalBalance, currency)}` : "暂无数据", 10, "medium", C.muted)
+          mkRow([
+            mkText("已消费", 10, "medium", C.muted),
+            mkText(fmtCurrency(spent, currency), 10, "bold", C.accent)
+          ], 2)
         ], 0)
       ]
     };
@@ -262,23 +251,11 @@ export default async function (ctx) {
             mkText(updateTimeStr, 11, "bold", C.muted, { family: "Menlo" })
           ], 0),
           mkSpacer(),
-          usage && usage.totalCost != null
-            ? mkRow([
-                mkText("总花费: ", 12, "medium", C.muted),
-                mkText(`$${usage.totalCost.toFixed(4)}`, 12, "bold", C.accent2)
-              ], 2)
-            : mkText("", 12, "medium", C.muted)
-        ], 0),
-
-        // 最近使用记录
-        ...(usage && usage.recentRecords && usage.recentRecords.length > 0
-          ? [
-              mkSpacer(12),
-              mkText("最近使用", 12, "semibold", C.main),
-              mkSpacer(6),
-              ...usage.recentRecords.slice(0, 4).map(r => buildRecord(r)).flatMap(el => [el, mkSpacer(4)]).slice(0, -1)
-            ]
-          : [])
+          mkRow([
+            mkText("已消费: ", 12, "medium", C.muted),
+            mkText(fmtCurrency(spent, currency), 12, "bold", C.accent)
+          ], 2)
+        ], 0)
       ]
     };
   }
@@ -286,6 +263,7 @@ export default async function (ctx) {
   // ── accessoryRectangular — 锁屏矩形 ───────────────────────────────────
   function buildRectangular() {
     const primaryText = balance ? fmtCurrency(balance.totalBalance, currency) : "--";
+    const spentText   = balance ? `已消费 ${fmtCurrency(spent, currency)}` : "";
     return {
       type: "widget", padding: [10, 14], backgroundGradient,
       children: [
@@ -293,12 +271,7 @@ export default async function (ctx) {
           mkIcon("brain.head.profile", C.accent, 12), mkSpacer(4),
           mkText(`DeepSeek  ${primaryText}`, 12, "semibold", C.main, { flex: 1, maxLines: 1, minScale: 0.6 })
         ], 0),
-        usage && usage.totalTokens != null
-          ? [
-              mkSpacer(2),
-              mkText(`${fmtTokens(usage.totalTokens)} tokens`, 10, "medium", C.muted)
-            ]
-          : []
+        spentText ? [mkSpacer(2), mkText(spentText, 10, "medium", C.muted)] : []
       ].flat()
     };
   }
@@ -319,8 +292,10 @@ export default async function (ctx) {
   // ── accessoryInline — 锁屏内联 ────────────────────────────────────────
   function buildInline() {
     const parts = [];
-    if (balance) parts.push(fmtCurrency(balance.totalBalance, currency));
-    if (usage && usage.totalTokens != null) parts.push(`${fmtTokens(usage.totalTokens)} tokens`);
+    if (balance) {
+      parts.push(fmtCurrency(balance.totalBalance, currency));
+      parts.push(`已消费 ${fmtCurrency(spent, currency)}`);
+    }
     const text = parts.length > 0 ? parts.join(" · ") : "DeepSeek";
     return {
       type: "widget",
@@ -330,22 +305,6 @@ export default async function (ctx) {
     };
   }
 
-  // ── 最近使用记录行 ────────────────────────────────────────────────────
-  function buildRecord(record) {
-    const model  = record.model || record.model_name || "Unknown";
-    const tokens = record.tokens || record.usage || record.total_tokens || 0;
-    const cost   = record.cost != null ? `$${Number(record.cost).toFixed(4)}` : null;
-
-    return {
-      type: "stack", direction: "row", alignItems: "center", gap: 8,
-      padding: [8, 10], backgroundColor: C.card, borderRadius: 8,
-      children: [
-        mkText(model, 12, "medium", C.main, { flex: 1, maxLines: 1, minScale: 0.7 }),
-        mkText(fmtTokens(tokens), 11, "medium", C.muted),
-        cost ? mkText(cost, 11, "bold", C.accent2) : mkSpacer(0)
-      ]
-    };
-  }
 }
 
 // ============================================================
@@ -376,24 +335,6 @@ function parseBalance(data) {
     };
   }
   return null;
-}
-
-function parseUsage(data) {
-  if (!data) return null;
-  const r = {};
-  if (data.total_tokens !== undefined) r.totalTokens = data.total_tokens;
-  if (data.total_cost   !== undefined) r.totalCost   = parseFloat(data.total_cost);
-  if (data.total_usage  !== undefined && r.totalTokens === undefined) r.totalTokens = data.total_usage;
-  if (data.usage_records && Array.isArray(data.usage_records)) r.recentRecords = data.usage_records.slice(0, 5);
-  return Object.keys(r).length > 0 ? r : null;
-}
-
-function fmtTokens(n) {
-  if (n == null) return null;
-  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + 'B';
-  if (n >= 1_000_000)     return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000)         return (n / 1_000).toFixed(1) + 'K';
-  return String(n);
 }
 
 function fmtCurrency(amount, currency) {
